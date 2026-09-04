@@ -55,6 +55,7 @@ Item {
   )
 
   readonly property var selected: root.monitors.find(function(m) { return m.name === root.selectedMonitor }) || null
+  readonly property bool selectedIsMirroring: root.selected ? root.selected.mirroringOf !== "" : false
   readonly property var resGroups: selected ? Model.groupModesByResolution(selected.availableModes) : []
   readonly property var scalePresets: ["1", "1.25", "1.6", "2", "3", "4"]
   // Filtered once, reused for both the ComboBox's model and its currentIndex --
@@ -72,6 +73,12 @@ Item {
     }
     if (root.operationState === "idle") root.opened = false
     // while applying/reverting/persisting, ignore close -- let it finish first
+  }
+
+  function stopMirroring() {
+    if (root.operationState !== "idle" || root.fetchInFlight) return
+    root.applyError = ""
+    stopMirrorProc.running = true
   }
 
   function fetchLive() {
@@ -160,7 +167,7 @@ Item {
   }
 
   function externalPayload(monitors) {
-    return JSON.stringify(monitors.filter(function(m) { return !m.isInternal }).map(function(m) {
+    return JSON.stringify(monitors.filter(function(m) { return !m.isInternal && !m.mirroringOf }).map(function(m) {
       return { name: m.name, mode: m.modeString, x: m.x, y: m.y, scale: m.scale, transform: m.transform, disabled: m.disabled }
     }))
   }
@@ -307,6 +314,17 @@ Item {
     onExited: function(exitCode) { stdinEnabled = true; persistProc.lastExitCode = exitCode; persistProc.persistExitKnown = true; root.finalizePersist() }
   }
 
+  // `omarchy-hyprland-monitor-internal-mirror off` deletes the toggle file but
+  // does not reload Hyprland (its on() does, its off() doesn't), so reload here.
+  Process {
+    id: stopMirrorProc
+    command: ["bash", "-c", "omarchy-hyprland-monitor-internal-mirror off && hyprctl reload"]
+    onExited: function(exitCode) {
+      if (exitCode !== 0) root.applyError = "Could not stop mirroring (exit " + exitCode + ")"
+      root.fetchLive()
+    }
+  }
+
   PanelWindow {
     id: panel
     visible: root.opened
@@ -358,7 +376,9 @@ Item {
 
               Text {
                 anchors.centerIn: parent
-                text: delegateRoot.modelData.description + (delegateRoot.modelData.isInternal ? " (fixed)" : "")
+                text: delegateRoot.modelData.description
+                    + (delegateRoot.modelData.isInternal ? " (fixed)" : "")
+                    + (delegateRoot.modelData.mirroringOf ? " (mirroring " + delegateRoot.modelData.mirroringOf + ")" : "")
                 color: "white"
                 wrapMode: Text.WordWrap
                 width: parent.width - 8
@@ -385,7 +405,7 @@ Item {
               id: dragHandler
               target: null
               property bool wasCanceled: false
-              enabled: !delegateRoot.modelData.isInternal && (root.draggingMonitor === "" || root.draggingMonitor === delegateRoot.modelData.name) && root.operationState === "idle" && !root.fetchInFlight
+              enabled: !delegateRoot.modelData.isInternal && !delegateRoot.modelData.mirroringOf && (root.draggingMonitor === "" || root.draggingMonitor === delegateRoot.modelData.name) && root.operationState === "idle" && !root.fetchInFlight
               onActiveChanged: {
                 if (active) {
                   root.draggingMonitor = delegateRoot.modelData.name
@@ -451,76 +471,96 @@ Item {
 
         Text { text: root.selected ? root.selected.description : ""; color: "white" }
 
-        ComboBox {
-          id: resCombo
+        Column {
+          visible: root.selectedIsMirroring
           width: parent.width
-          model: root.resGroups.map(function(g) { return g.resolution })
-          currentIndex: root.resGroups.findIndex(function(g) {
-            return root.selected && g.resolution === (root.selected.width + "x" + root.selected.height)
-          })
-          onActivated: {
-            var group = root.resGroups[currentIndex]
-            var firstMode = group.modes[0]
-            var res = group.resolution.split("x")
-            root.updateMonitorMode(root.selected.name, parseInt(res[0]), parseInt(res[1]), firstMode.refreshRate, firstMode.label)
+          spacing: 6
+          Text {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            color: "#ffcc66"
+            text: "Mirroring " + (root.selected ? root.selected.mirroringOf : "")
+                + " — Omarchy's mirror toggle loads after this plugin's config, so mode, scale and position can't be set here."
           }
+          Button { text: "Stop mirroring"; onClicked: root.stopMirroring() }
         }
 
-        ComboBox {
-          id: rateCombo
+        Column {
+          enabled: !root.selectedIsMirroring
           width: parent.width
-          model: {
-            var g = root.resGroups.find(function(g) { return g.resolution === resCombo.currentText })
-            return g ? g.modes.map(function(m) { return m.refreshRate + " Hz" }) : []
-          }
-          currentIndex: {
-            var g = root.resGroups.find(function(g) { return g.resolution === resCombo.currentText })
-            if (!g || !root.selected) return -1
-            return g.modes.findIndex(function(m) { return m.refreshRate === root.selected.refreshRate })
-          }
-          onActivated: {
-            var g = root.resGroups.find(function(g) { return g.resolution === resCombo.currentText })
-            if (!g) return
-            var m = g.modes[currentIndex]
-            var res = g.resolution.split("x")
-            root.updateMonitorMode(root.selected.name, parseInt(res[0]), parseInt(res[1]), m.refreshRate, m.label)
-          }
-        }
+          spacing: 8
 
-        ComboBox {
-          id: scaleCombo
-          width: parent.width
-          model: root.availableScalesForSelected
-          currentIndex: root.selected ? Model.matchingScaleIndex(root.availableScalesForSelected, root.selected.scale, root.selected.width, root.selected.height) : -1
-          onActivated: root.updateMonitorField(root.selected.name, "scale",
-            parseFloat(Model.cleanScale(currentText, root.selected.width, root.selected.height)))
-        }
-
-        Text {
-          width: parent.width
-          wrapMode: Text.WordWrap
-          color: "#aaaaaa"
-          text: {
-            if (!root.selected) return ""
-            var s = Model.logicalSize(root.selected)
-            return root.selected.width + "×" + root.selected.height
-                 + " at scale " + root.selected.scale
-                 + "  →  " + Math.round(s.width) + "×" + Math.round(s.height) + " usable"
+          ComboBox {
+            id: resCombo
+            width: parent.width
+            model: root.resGroups.map(function(g) { return g.resolution })
+            currentIndex: root.resGroups.findIndex(function(g) {
+              return root.selected && g.resolution === (root.selected.width + "x" + root.selected.height)
+            })
+            onActivated: {
+              var group = root.resGroups[currentIndex]
+              var firstMode = group.modes[0]
+              var res = group.resolution.split("x")
+              root.updateMonitorMode(root.selected.name, parseInt(res[0]), parseInt(res[1]), firstMode.refreshRate, firstMode.label)
+            }
           }
-        }
 
-        ComboBox {
-          id: rotationCombo
-          width: parent.width
-          model: ["0°", "90°", "180°", "270°"]
-          currentIndex: root.selected ? root.selected.transform : 0
-          onActivated: root.updateMonitorField(root.selected.name, "transform", currentIndex)
-        }
+          ComboBox {
+            id: rateCombo
+            width: parent.width
+            model: {
+              var g = root.resGroups.find(function(g) { return g.resolution === resCombo.currentText })
+              return g ? g.modes.map(function(m) { return m.refreshRate + " Hz" }) : []
+            }
+            currentIndex: {
+              var g = root.resGroups.find(function(g) { return g.resolution === resCombo.currentText })
+              if (!g || !root.selected) return -1
+              return g.modes.findIndex(function(m) { return m.refreshRate === root.selected.refreshRate })
+            }
+            onActivated: {
+              var g = root.resGroups.find(function(g) { return g.resolution === resCombo.currentText })
+              if (!g) return
+              var m = g.modes[currentIndex]
+              var res = g.resolution.split("x")
+              root.updateMonitorMode(root.selected.name, parseInt(res[0]), parseInt(res[1]), m.refreshRate, m.label)
+            }
+          }
 
-        CheckBox {
-          text: "Enabled"
-          checked: root.selected ? !root.selected.disabled : true
-          onToggled: root.updateMonitorField(root.selected.name, "disabled", !checked)
+          ComboBox {
+            id: scaleCombo
+            width: parent.width
+            model: root.availableScalesForSelected
+            currentIndex: root.selected ? Model.matchingScaleIndex(root.availableScalesForSelected, root.selected.scale, root.selected.width, root.selected.height) : -1
+            onActivated: root.updateMonitorField(root.selected.name, "scale",
+              parseFloat(Model.cleanScale(currentText, root.selected.width, root.selected.height)))
+          }
+
+          Text {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            color: "#aaaaaa"
+            text: {
+              if (!root.selected) return ""
+              var s = Model.logicalSize(root.selected)
+              return root.selected.width + "×" + root.selected.height
+                   + " at scale " + root.selected.scale
+                   + "  →  " + Math.round(s.width) + "×" + Math.round(s.height) + " usable"
+            }
+          }
+
+          ComboBox {
+            id: rotationCombo
+            width: parent.width
+            model: ["0°", "90°", "180°", "270°"]
+            currentIndex: root.selected ? root.selected.transform : 0
+            onActivated: root.updateMonitorField(root.selected.name, "transform", currentIndex)
+          }
+
+          CheckBox {
+            text: "Enabled"
+            checked: root.selected ? !root.selected.disabled : true
+            onToggled: root.updateMonitorField(root.selected.name, "disabled", !checked)
+          }
         }
       }
 
