@@ -496,6 +496,19 @@ Item {
             parseFloat(Model.cleanScale(currentText, root.selected.width, root.selected.height)))
         }
 
+        Text {
+          width: parent.width
+          wrapMode: Text.WordWrap
+          color: "#aaaaaa"
+          text: {
+            if (!root.selected) return ""
+            var s = Model.logicalSize(root.selected)
+            return root.selected.width + "×" + root.selected.height
+                 + " at scale " + root.selected.scale
+                 + "  →  " + Math.round(s.width) + "×" + Math.round(s.height) + " usable"
+          }
+        }
+
         ComboBox {
           id: rotationCombo
           width: parent.width
