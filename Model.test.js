@@ -56,4 +56,19 @@ assert.strictEqual(snappedNegative.x, -200)
 assert.doesNotThrow(function() { Model.groupModesByResolution(["garbage", null, "1920x1080@60.00Hz"]) })
 assert.strictEqual(Model.groupModesByResolution(["garbage", "1920x1080@60.00Hz"]).length, 1)
 
+// mirroringOf resolves Hyprland's id-or-name reference to a readable name.
+const mirrorCases = Model.parseMonitors([
+  { name: "eDP-1", id: 0, mirrorOf: "none" },
+  { name: "DP-1",  id: 1, mirrorOf: "0" },      // id form — what hyprctl actually reports
+  { name: "DP-9",  id: 9, mirrorOf: "eDP-1" },  // name form
+  { name: "DP-8",  id: 8, mirrorOf: "7" },      // dangling reference passes through
+  { name: "DP-7",  id: 2 },                     // field absent entirely
+])
+assert.strictEqual(mirrorCases.find(m => m.name === "eDP-1").mirroringOf, "")
+assert.strictEqual(mirrorCases.find(m => m.name === "DP-1").mirroringOf, "eDP-1")
+assert.strictEqual(mirrorCases.find(m => m.name === "DP-9").mirroringOf, "eDP-1")
+assert.strictEqual(mirrorCases.find(m => m.name === "DP-8").mirroringOf, "7")
+assert.strictEqual(mirrorCases.find(m => m.name === "DP-7").mirroringOf, "")
+assert.ok(Model.parseMonitors(fixture).every(m => "mirroringOf" in m))
+
 console.log("All edge-case tests passed")

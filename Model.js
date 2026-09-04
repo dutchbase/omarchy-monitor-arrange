@@ -59,7 +59,18 @@ function logicalSize(monitor) {
 }
 
 function parseMonitors(raw) {
-  return (Array.isArray(raw) ? raw : []).map(function(m) {
+  var list = Array.isArray(raw) ? raw : []
+  // Hyprland reports mirrorOf as "none", or as the SOURCE MONITOR'S ID as a
+  // string ("0"), even when the config named it (mirror = "eDP-1"). Resolve to a
+  // name so the UI can say what it mirrors; leave a dangling ref untouched.
+  function mirrorName(ref) {
+    if (ref === undefined || ref === null || ref === "" || ref === "none") return ""
+    var match = list.filter(function(m) {
+      return String(m.id) === String(ref) || m.name === String(ref)
+    })[0]
+    return match ? match.name : String(ref)
+  }
+  return list.map(function(m) {
     return {
       name: m.name, description: m.description || m.name,
       x: m.x, y: m.y, width: m.width, height: m.height,
@@ -67,6 +78,7 @@ function parseMonitors(raw) {
       refreshRate: m.refreshRate, disabled: !!m.disabled, focused: !!m.focused,
       availableModes: m.availableModes || [],
       isInternal: isInternalName(m.name),
+      mirroringOf: mirrorName(m.mirrorOf),
       modeString: m.width + "x" + m.height + "@" + m.refreshRate + "Hz"
     }
   })
