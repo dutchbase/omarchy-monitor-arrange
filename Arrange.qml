@@ -78,6 +78,10 @@ Item {
   function stopMirroring() {
     if (root.operationState !== "idle" || root.fetchInFlight) return
     root.applyError = ""
+    // Reuse fetchInFlight as the busy flag: it already gates Apply, the side
+    // panel and dragging, and it keeps a concurrent fetch from racing the
+    // reload this command performs.
+    root.fetchInFlight = true
     stopMirrorProc.running = true
   }
 
@@ -144,10 +148,18 @@ Item {
 
   function applyLayout() {
     root.applyError = ""
+    var payload = root.externalPayload(root.monitors)
+    // JSON.stringify([]) is exactly "[]" — nothing this plugin manages is left
+    // to apply, so don't start a run that would fail and then fail again on the
+    // automatic revert.
+    if (payload === "[]") {
+      root.applyError = "Nothing to apply — every external monitor is mirrored or managed by Omarchy."
+      return
+    }
     root.operationState = "applying"
     applyProc.applyExitKnown = false
     applyProc.applyStderrKnown = false
-    applyProc.payload = root.externalPayload(root.monitors)
+    applyProc.payload = payload
     applyProc.running = true
   }
 
@@ -321,6 +333,7 @@ Item {
     command: ["bash", "-c", "omarchy-hyprland-monitor-internal-mirror off && hyprctl reload"]
     onExited: function(exitCode) {
       if (exitCode !== 0) root.applyError = "Could not stop mirroring (exit " + exitCode + ")"
+      root.fetchInFlight = false // release first, or fetchLive()'s own guard drops the refresh
       root.fetchLive()
     }
   }
