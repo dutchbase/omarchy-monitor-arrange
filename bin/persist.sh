@@ -27,7 +27,7 @@ if ! jq -e '
 fi
 
 block_file="$(mktemp "$HOME/.config/hypr/.monitors-arrange-block.XXXXXX")"
-trap 'rm -f "$block_file"' EXIT
+trap 'rm -f "$block_file" "${tmp:-}"' EXIT
 
 echo "$payload" | jq -c '.[]' | while read -r item; do
   name="$(echo "$item" | jq -r '.name')"
