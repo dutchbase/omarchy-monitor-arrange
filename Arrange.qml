@@ -76,17 +76,13 @@ Item {
   }
 
   function stopMirroring() {
-    if (root.operationState !== "idle" || root.fetchInFlight) return
+    if (root.operationState !== "idle" || root.fetchInFlight || stopMirrorProc.running) return
     root.applyError = ""
-    // Reuse fetchInFlight as the busy flag: it already gates Apply, the side
-    // panel and dragging, and it keeps a concurrent fetch from racing the
-    // reload this command performs.
-    root.fetchInFlight = true
     stopMirrorProc.running = true
   }
 
   function fetchLive() {
-    if (root.operationState !== "idle" || root.fetchInFlight) return // never fetch mid-transaction or while one is already running
+    if (root.operationState !== "idle" || root.fetchInFlight || stopMirrorProc.running) return // never fetch mid-transaction, while one is already running, or mid stop-mirroring
     root.fetchInFlight = true
     fetchProc.fetchExitKnown = false
     fetchProc.fetchStreamKnown = false
@@ -333,8 +329,8 @@ Item {
     command: ["bash", "-c", "omarchy-hyprland-monitor-internal-mirror off && hyprctl reload"]
     onExited: function(exitCode) {
       if (exitCode !== 0) root.applyError = "Could not stop mirroring (exit " + exitCode + ")"
-      root.fetchInFlight = false // release first, or fetchLive()'s own guard drops the refresh
-      root.fetchLive()
+      // Deferred: `running` may not have settled false yet, and fetchLive() refuses while it is true.
+      Qt.callLater(root.fetchLive)
     }
   }
 
@@ -418,7 +414,7 @@ Item {
               id: dragHandler
               target: null
               property bool wasCanceled: false
-              enabled: !delegateRoot.modelData.isInternal && !delegateRoot.modelData.mirroringOf && (root.draggingMonitor === "" || root.draggingMonitor === delegateRoot.modelData.name) && root.operationState === "idle" && !root.fetchInFlight
+              enabled: !delegateRoot.modelData.isInternal && !delegateRoot.modelData.mirroringOf && (root.draggingMonitor === "" || root.draggingMonitor === delegateRoot.modelData.name) && root.operationState === "idle" && !root.fetchInFlight && !stopMirrorProc.running
               onActiveChanged: {
                 if (active) {
                   root.draggingMonitor = delegateRoot.modelData.name
@@ -477,7 +473,7 @@ Item {
       Column {
         id: sidePanel
         visible: root.selected !== null
-        enabled: root.operationState === "idle" && !root.fetchInFlight
+        enabled: root.operationState === "idle" && !root.fetchInFlight && !stopMirrorProc.running
         anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 16
         width: 260
         spacing: 8
@@ -583,7 +579,7 @@ Item {
         Text { text: root.applyError; color: "#ff8080"; visible: root.applyError !== "" }
         Button {
           text: root.operationState === "applying" ? "Applying…" : "Apply"
-          enabled: root.operationState === "idle" && !root.fetchInFlight
+          enabled: root.operationState === "idle" && !root.fetchInFlight && !stopMirrorProc.running
           onClicked: root.applyLayout()
         }
       }
