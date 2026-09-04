@@ -213,6 +213,7 @@ Item {
     root.fetchLive()
   }
 
+  // Commands run via bash so a missing script is a normal nonzero exit; Process has no start-failure signal in this Quickshell.
   Process {
     id: fetchProc
     property bool fetchExitKnown: false
@@ -220,7 +221,7 @@ Item {
     property int lastExitCode: -1
     property string lastStdoutText: ""
     property string lastStderrText: ""
-    command: ["hyprctl", "monitors", "all", "-j"]
+    command: ["bash", "-c", "exec hyprctl monitors all -j"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: { fetchProc.lastStdoutText = text || ""; fetchProc.fetchStreamKnown = true; root.finalizeFetch() }
@@ -230,17 +231,6 @@ Item {
       onStreamFinished: { fetchProc.lastStderrText = String(text || "").trim() }
     }
     onExited: function(exitCode) { fetchProc.lastExitCode = exitCode; fetchProc.fetchExitKnown = true; root.finalizeFetch() }
-    onErrorOccurred: function(error) {
-      // Process failed to start entirely -- onExited/onStreamFinished won't
-      // fire in this case (verified: Quickshell's Process only emits
-      // runningChanged on a start failure, not exited), so force both join
-      // flags directly rather than waiting on signals that will never come.
-      fetchProc.lastExitCode = -1
-      fetchProc.lastStderrText = "hyprctl failed to start (error " + error + ")"
-      fetchProc.fetchExitKnown = true
-      fetchProc.fetchStreamKnown = true
-      root.finalizeFetch()
-    }
   }
 
   Process {
@@ -250,7 +240,7 @@ Item {
     property bool applyStderrKnown: false
     property int lastExitCode: -1
     property string lastStderrText: ""
-    command: [Quickshell.env("HOME") + "/.config/omarchy/plugins/dutchbase.monitor-arrange/bin/apply.sh"]
+    command: ["bash", Quickshell.env("HOME") + "/.config/omarchy/plugins/dutchbase.monitor-arrange/bin/apply.sh"]
     stdinEnabled: true
     stderr: StdioCollector {
       waitForEnd: true
@@ -269,19 +259,6 @@ Item {
       stdinEnabled = true
       applyProc.lastExitCode = exitCode
       applyProc.applyExitKnown = true
-      root.finalizeApply()
-    }
-    onErrorOccurred: function(error) {
-      // A process that fails to start at all (bad path, not executable) never
-      // fires onExited or the stdio collectors' onStreamFinished -- verified
-      // against Quickshell's real Process API, which only emits runningChanged
-      // in that case. Without this handler the join in finalizeApply() would
-      // wait forever and the state machine would be stuck on "applying" with
-      // no way out. Force both join flags directly instead of waiting.
-      applyProc.lastExitCode = -1
-      applyProc.lastStderrText = "apply.sh failed to start (error " + error + ")"
-      applyProc.applyExitKnown = true
-      applyProc.applyStderrKnown = true
       root.finalizeApply()
     }
   }
@@ -303,7 +280,7 @@ Item {
     property bool revertStderrKnown: false
     property int lastExitCode: -1
     property string lastStderrText: ""
-    command: [Quickshell.env("HOME") + "/.config/omarchy/plugins/dutchbase.monitor-arrange/bin/apply.sh"]
+    command: ["bash", Quickshell.env("HOME") + "/.config/omarchy/plugins/dutchbase.monitor-arrange/bin/apply.sh"]
     stdinEnabled: true
     stderr: StdioCollector {
       waitForEnd: true
@@ -311,14 +288,6 @@ Item {
     }
     onStarted: { write(revertProc.payload); revertProc.payload = ""; stdinEnabled = false }
     onExited: function(exitCode) { stdinEnabled = true; revertProc.lastExitCode = exitCode; revertProc.revertExitKnown = true; root.finalizeRevert() }
-    onErrorOccurred: function(error) {
-      // Same failed-to-start hazard as applyProc -- see its comment.
-      revertProc.lastExitCode = -1
-      revertProc.lastStderrText = "apply.sh failed to start (error " + error + ")"
-      revertProc.revertExitKnown = true
-      revertProc.revertStderrKnown = true
-      root.finalizeRevert()
-    }
   }
 
   Process {
@@ -328,7 +297,7 @@ Item {
     property bool persistStderrKnown: false
     property int lastExitCode: -1
     property string lastStderrText: ""
-    command: [Quickshell.env("HOME") + "/.config/omarchy/plugins/dutchbase.monitor-arrange/bin/persist.sh"]
+    command: ["bash", Quickshell.env("HOME") + "/.config/omarchy/plugins/dutchbase.monitor-arrange/bin/persist.sh"]
     stdinEnabled: true
     stderr: StdioCollector {
       waitForEnd: true
@@ -336,14 +305,6 @@ Item {
     }
     onStarted: { write(persistProc.payload); persistProc.payload = ""; stdinEnabled = false }
     onExited: function(exitCode) { stdinEnabled = true; persistProc.lastExitCode = exitCode; persistProc.persistExitKnown = true; root.finalizePersist() }
-    onErrorOccurred: function(error) {
-      // Same failed-to-start hazard as applyProc -- see its comment.
-      persistProc.lastExitCode = -1
-      persistProc.lastStderrText = "persist.sh failed to start (error " + error + ")"
-      persistProc.persistExitKnown = true
-      persistProc.persistStderrKnown = true
-      root.finalizePersist()
-    }
   }
 
   PanelWindow {
