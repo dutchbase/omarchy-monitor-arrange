@@ -1,19 +1,34 @@
 #!/bin/bash
 
-# Restore the saved desk monitor layout: two externals above the laptop panel,
-# meeting at the laptop's horizontal midpoint. Overwrites ~/.config/hypr/monitors.lua,
-# backing up whatever was there first.
+# Restore a saved monitor layout by name. With no argument, pick one
+# interactively -- that needs a terminal, so the menu entry for it goes through
+# omarchy-launch-or-focus-tui. Overwrites ~/.config/hypr/monitors.lua, backing
+# up whatever was there first.
 set -euo pipefail
 
-layout="$HOME/.config/omarchy/plugins/dutchbase.monitor-arrange/layouts/desk.lua"
+layouts_dir="$HOME/.config/omarchy/plugins/dutchbase.monitor-arrange/layouts"
 target="$HOME/.config/hypr/monitors.lua"
 
+name="${1-}"
+if [[ -z $name ]]; then
+  name=$(ls -1 "$layouts_dir"/*.lua 2>/dev/null | xargs -r -n1 basename | sed 's/\.lua$//' \
+    | gum choose --header "Restore which display layout?") || exit 1
+fi
+
+# The name is interpolated into a file path, so only a plain name may pass;
+# "." and ".." match the character class and must be rejected separately.
+if [[ ! $name =~ ^[A-Za-z0-9._-]+$ || $name == "." || $name == ".." ]]; then
+  echo "Refusing unsafe layout name: $name" >&2
+  exit 1
+fi
+
+layout="$layouts_dir/$name.lua"
 if [[ ! -f $layout ]]; then
-  echo "No saved layout at $layout" >&2
+  echo "No saved layout named '$name'" >&2
   exit 1
 fi
 
 [[ -f $target ]] && cp "$target" "$target.bak.$(date +%s)"
 cp "$layout" "$target"
 hyprctl reload
-omarchy-notification-send -g 󰍹 "Desk layout restored" 2>/dev/null || true
+omarchy-notification-send -g 󰍹 "Display layout: $name" 2>/dev/null || true
