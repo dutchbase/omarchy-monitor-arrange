@@ -1,0 +1,19 @@
+#!/bin/bash
+
+# Restore the saved desk monitor layout: two externals above the laptop panel,
+# meeting at the laptop's horizontal midpoint. Overwrites ~/.config/hypr/monitors.lua,
+# backing up whatever was there first.
+set -euo pipefail
+
+layout="$HOME/.config/omarchy/plugins/dutchbase.monitor-arrange/layouts/desk.lua"
+target="$HOME/.config/hypr/monitors.lua"
+
+if [[ ! -f $layout ]]; then
+  echo "No saved layout at $layout" >&2
+  exit 1
+fi
+
+[[ -f $target ]] && cp "$target" "$target.bak.$(date +%s)"
+cp "$layout" "$target"
+hyprctl reload
+omarchy-notification-send -g 󰍹 "Desk layout restored" 2>/dev/null || true
