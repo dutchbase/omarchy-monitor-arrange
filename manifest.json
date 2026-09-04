@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "dutchbase.monitor-arrange",
+  "name": "Arrange Displays",
+  "version": "1.0.0",
+  "author": "dutchbase",
+  "description": "Drag-and-drop external monitor arrangement, resolution, scale, and rotation",
+  "kinds": ["overlay"],
+  "keepLoaded": true,
+  "entryPoints": { "overlay": "Arrange.qml" }
+}
