@@ -90,6 +90,7 @@ fi
 # testing this exact expression, not just reading it). Scale and refresh rate
 # use a small epsilon since floating point round-trips through Hyprland
 # aren't guaranteed bit-exact.
+for attempt in 1 2 3 4 5; do
 live="$(hyprctl monitors all -j)"
 mismatch="$(jq -n --argjson requested "$payload" --argjson live "$live" '
   [$requested[] as $r |
@@ -108,6 +109,13 @@ mismatch="$(jq -n --argjson requested "$payload" --argjson live "$live" '
     )
   ] | length
 ')"
+if [[ "$mismatch" == "0" ]]; then
+  break
+fi
+if (( attempt < 5 )); then
+  sleep 0.5
+fi
+done
 if [[ "$mismatch" != "0" ]]; then
   echo "Live state did not match requested layout after apply" >&2
   exit 1
