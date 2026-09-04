@@ -1,0 +1,33 @@
+#!/bin/bash
+
+# Save the current monitor configuration as a named layout, so it can be
+# restored later with `restore-layout <name>`. Snapshots the file verbatim:
+# monitors.lua carries hand-written rules and comments that generating from
+# live state would silently drop.
+set -euo pipefail
+
+layouts_dir="$HOME/.config/omarchy/plugins/dutchbase.monitor-arrange/layouts"
+source_file="$HOME/.config/hypr/monitors.lua"
+
+name="${1-}"
+if [[ -z $name ]]; then
+  echo "Usage: save-layout <name>" >&2
+  exit 1
+fi
+
+# The name is interpolated into a file path, so only a plain name may pass;
+# "." and ".." match the character class and must be rejected separately.
+if [[ ! $name =~ ^[A-Za-z0-9._-]+$ || $name == "." || $name == ".." ]]; then
+  echo "Refusing unsafe layout name: $name" >&2
+  exit 1
+fi
+
+if [[ ! -f $source_file ]]; then
+  echo "No monitor config at $source_file" >&2
+  exit 1
+fi
+
+mkdir -p "$layouts_dir"
+cp "$source_file" "$layouts_dir/$name.lua"
+omarchy-notification-send -g 󰍹 "Saved display layout: $name" 2>/dev/null || true
+echo "Saved $layouts_dir/$name.lua"
